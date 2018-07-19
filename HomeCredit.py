@@ -37,11 +37,22 @@ def cut_missing_fea(df, mis_threshold=60):
 
 
 def prepare_data(df, group_var, prefix):
-    # cut off featues with too much missing values
+    """
+    (1) cut off features with too many missing values;
+    (2) one hot encoding for categorical feature;
+    (3) aggregate and create new features including sum, mean, std
+    (4) count num of group_var for each 'SK_ID_CURR'
+    """
+    # cut off featues with too many missing values
     df = cut_missing_fea(df)
 
-    # one hot encoding
-    df = pd.get_dummies(df)
+    # if only one or two categories, factorize()
+    for col in df:
+        if df[col].dtype == 'object' and len(list(df[col].unique())) <= 2:
+            df.loc[:, col], _ = pd.factorize(df[col])
+
+    # one hot encoding if more than two categories, including Null
+    df = pd.get_dummies(df, dummy_na=True)
 
     # compute sum, mean, std for each column
     d1 = df.drop([group_var], axis=1).groupby('SK_ID_CURR').agg(['sum', 'mean', 'std'])
@@ -89,11 +100,42 @@ data = pd.concat([app_train_raw,app_test_raw],axis=0)
 
 assert data.shape[0] == app_train_raw.shape[0] + app_test_raw.shape[0], data.shape[1] == app_train_raw.shape[1]
 
+# credit to Bojan TunguzXGB Simple Features
+# https://www.kaggle.com/tunguz/xgb-simple-features/code
+# NaN values for DAYS_EMPLOYED: 365.243 -> nan
+data['DAYS_EMPLOYED'].replace(365243, np.nan, inplace= True)
+
+data['NEW_CREDIT_TO_ANNUITY_RATIO'] = data['AMT_CREDIT'] / data['AMT_ANNUITY']
+data['NEW_CREDIT_TO_GOODS_RATIO'] = data['AMT_CREDIT'] / data['AMT_GOODS_PRICE']
+data['NEW_ANNUITY_TO_INCOME_RATIO'] = data['AMT_ANNUITY'] / data['AMT_INCOME_TOTAL']
+data['NEW_CREDIT_TO_INCOME_RATIO'] = data['AMT_CREDIT'] / data['AMT_INCOME_TOTAL']
+
+data['CNT_FAM_MEMBERS'].fillna(data['CNT_FAM_MEMBERS'].median(),inplace=True)
+data['NEW_INC_PER_MEMB'] = data['AMT_INCOME_TOTAL'] / data['CNT_FAM_MEMBERS']
+data['NEW_INC_PER_CHLD'] = data['AMT_INCOME_TOTAL'] / (1 + data['CNT_CHILDREN'])
+
+data['NEW_EMPLOY_TO_BIRTH_RATIO'] = data['DAYS_EMPLOYED'] / data['DAYS_BIRTH']
+data['NEW_CAR_TO_BIRTH_RATIO'] = data['OWN_CAR_AGE'] / data['DAYS_BIRTH']
+data['NEW_CAR_TO_EMPLOY_RATIO'] = data['OWN_CAR_AGE'] / data['DAYS_EMPLOYED']
+data['NEW_PHONE_TO_BIRTH_RATIO'] = data['DAYS_LAST_PHONE_CHANGE'] / data['DAYS_BIRTH']
+
+data['NEW_SOURCES_PROD'] = data['EXT_SOURCE_1'] * data['EXT_SOURCE_2'] * data['EXT_SOURCE_3']
+data['NEW_EXT_SOURCES_MEAN'] = data[['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']].mean(axis=1)
+data['NEW_SCORES_STD'] = data[['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']].std(axis=1)
+data['NEW_SCORES_STD'].fillna(data['NEW_SCORES_STD'].mean(),inplace=True)
+
 # cut features with too much values
 data = cut_missing_fea(data)
 
-# one hot encoding
-data = pd.get_dummies(data)
+
+# if only one or two categories, factorize()
+for col in data:
+    if data[col].dtype == 'object' and len(list(data[col].unique())) <= 2:
+        data[col], _ = pd.factorize(data[col])
+
+# one hot encoding if more than two categories, including Null
+data = pd.get_dummies(data,dummy_na=True)
+
 del app_train_raw, app_test_raw
 
 
@@ -119,10 +161,21 @@ del bureau, bureau_balance
 
 print("reading and preparing previous application...")
 prev_app = pd.read_csv(path + '/previous_application.csv')
+
+col_DAYS = []
+for col in prev_app:
+    if 'DAYS' in col:
+        col_DAYS.append(col)
+
+for col in col_DAYS:
+    prev_app[col].replace(365243,np.nan,inplace=True)
+del col_DAYS
+
 prev_app = prepare_data(prev_app,group_var='SK_ID_PREV',prefix='prev_app')
 # merge with  data
 data = pd.merge(data,prev_app,how='left')
 del prev_app
+
 
 pos_bal = pd.read_csv(path + '/POS_CASH_balance.csv')
 pos_bal = prepare_data(pos_bal,group_var='SK_ID_PREV',prefix='pos')
