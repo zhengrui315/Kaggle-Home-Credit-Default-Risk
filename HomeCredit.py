@@ -293,7 +293,6 @@ def final_processing(data):
     trainX = pd.DataFrame(trainX,columns=features)
     testX = pd.DataFrame(testX,columns=features)
 
-
     return trainX, testX
 
 
